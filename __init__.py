@@ -140,7 +140,7 @@ models = []
 class ModelTransformer(discord.app_commands.Transformer):
 
     @classmethod
-    async def transform(self, interaction: discord.Interaction, value: str, /) -> discord.Color:
+    async def transform(self, interaction: discord.Interaction, value: str, /) -> str:
         return value
 
     @classmethod
@@ -149,6 +149,11 @@ class ModelTransformer(discord.app_commands.Transformer):
         for m in models:
             choices.append(discord.app_commands.Choice(name=m.get("model_name"), value=m.get("title")))
         return choices[:25]
+        
+class StyleTransformer(discord.app_commands.Transformer):
+    @classmethod
+    async def transform(self, interaction: discord.Interaction, value: str):
+        pass
 
 def get_model_list():
     response = requests.get(url=f'{url}/sdapi/v1/sd-models')
@@ -176,7 +181,7 @@ async def on_ready():
     models = get_model_list()
 
 @Lib.app.slash(name="text2image", description="génère une image par IA")
-async def remove_manga(ctx: discord.Interaction, model: ModelTransformer, channel: discord.ForumChannel):
+async def text2image(ctx: discord.Interaction, style="", model: ModelTransformer=None, refiner: ModelTransformer=""):
     pass
 
 if __name__=="__main__":
