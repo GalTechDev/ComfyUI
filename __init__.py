@@ -25,7 +25,7 @@ payload_json = {
         "Refiner" :{
             "args" : [
                 False, 
-                "sd_xl_refiner_1.0_0.9vae.safetensors [8d0ce6c016]", 
+                "", 
                 0.8
             ]
         },
@@ -40,12 +40,12 @@ payload_json = {
             ]
         },
         "Style Selector for SDXL 1.0" :{
-        "args" : [
-            True,
-            False,
-            False,
-            False,
-            "Photographique"
+            "args" : [
+                True,
+                False,
+                False,
+                False,
+                "Photographique"
             ]
         }
     },
@@ -206,6 +206,9 @@ async def gen_image(p_prompt, n_prompt="", style="base", refiner="", steps=25):
     payload["prompt"] = p_prompt
     payload["negative_prompt"] = n_prompt
     payload["steps"] = steps
+
+    payload["alwayson_scripts"]["Refiner"]["args"][1] = refiner
+    payload["alwayson_scripts"]["Style Selector for SDXL 1.0"]["args"][4] = style
 
     response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=payload)
     
