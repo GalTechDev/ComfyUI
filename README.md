@@ -1,2 +1,2 @@
-# automatic111
- UsOS app for automatic111
+# automatic1111
+ UsOS app for automatic1111
