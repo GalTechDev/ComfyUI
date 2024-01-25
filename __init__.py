@@ -14,6 +14,10 @@ save_path = ("sd_output", "output.png")
 
 url = "http://127.0.0.1:7860"
 
+prompt = "?"
+last_progress = 0
+ctx: discord.Message = None
+
 payload_json = {
     "alwayson_scripts" : {
         "API payload" :{
@@ -186,11 +190,11 @@ class Prompt(discord.ui.Modal):
         self.steps = steps
 
     async def on_submit(self, interaction: discord.Interaction):
+        global ctx
+        ctx = interaction
         await interaction.response.send_message(f'Generating... 0%\n**{self.positive.value}**', ephemeral=True)
-        task = asyncio.create_task(gen_image(self.positive.value, self.negative.value, self.style, self.refiner, self.steps))
+        await gen_image(self.positive.value, self.negative.value, self.style, self.refiner, self.steps)
 
-        await update_progress(interaction, self.positive.value)
-        await task
         await interaction.edit_original_response(content=f'**{self.positive.value}**', attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
@@ -217,29 +221,43 @@ async def gen_image(p_prompt, n_prompt="", style="base", refiner="", steps=25):
         image = Image.open(io.BytesIO(base64.b64decode(r['images'][0])))
         image.save(Lib.save.get_full_path(save_path[1],save_path[0]))
 
-    else:
-        print(response.text)
+async def update_progress(): #ctx: discord.Interaction, prompt
+    async def update_img(ctx):
+        img_data = r.get("current_image")
+        if img_data:
+            image = Image.open(io.BytesIO(base64.b64decode(img_data)))
+            image = image.resize((1024, 1024))
+            image.save(Lib.save.get_full_path(save_path[1],save_path[0]))
+            if isinstance(ctx, discord.Message):
+                await ctx.edit(content=f"Generating... {int(progress*100)}%\n**{prompt}**", attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
+            elif isinstance(ctx, discord.Interaction):
+                await ctx.edit_original_response(content=f"Generating... {int(progress*100)}%\n**{prompt}**", attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
+        else:
+            if isinstance(ctx, discord.Message):
+                await ctx.edit(content=f"Generating... {int(progress*100)}%\n**{prompt}**")
+            elif isinstance(ctx, discord.Interaction):
+                await ctx.edit_original_response(content=f"Generating... {int(progress*100)}%\n**{prompt}**")
 
-async def update_progress(ctx: discord.Interaction, prompt): #ctx: discord.Interaction, prompt
-    last_progress = 0.0
-    while True:
+    global last_progress, ctx
+    if ctx:
         response = requests.get(url = "http://127.0.0.1:7860/sdapi/v1/progress")
         r = response.json()
         progress = r.get("progress")
-        print(f"progress : {int(progress*100)}%")
-        print(r)
-        if progress >= last_progress:
+        
+        if progress > last_progress and progress > 0:
             last_progress = progress
-            img_data = r.get("current_image")
-            if img_data:
-                image = Image.open(io.BytesIO(base64.b64decode(img_data)))
-                image.save(Lib.save.get_full_path(save_path[1],save_path[0]))
-                await ctx.edit_original_response(content=f"Generating... {progress*100}%\n**{prompt}**", attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
-            else:
-                await ctx.edit_original_response(content=f"Generating... {progress*100}%\n**{prompt}**")
-        else:
-            break
-        await asyncio.sleep(2)
+            await update_img(ctx)
+        elif progress < last_progress:
+            await update_img(ctx)
+            if isinstance(ctx, discord.Message):
+                await ctx.edit(content=f"Generating... finished\n**{prompt}**")
+            elif isinstance(ctx, discord.Interaction):
+                await ctx.edit_original_response(content=f"Generating... finished\n**{prompt}**")
+            ctx = await Lib.client.get_user(608779421683417144).send(f"Generating... 0%\n**{prompt}**")
+            progress = 0
+    else:
+        ctx = await Lib.client.get_user(608779421683417144).send(f"Generating... 0%\n**{prompt}**")
+    
 
 @Lib.event.event()
 async def on_ready():
@@ -251,6 +269,10 @@ async def on_ready():
 @Lib.app.slash(name="text2image", description="génère une image par IA")
 async def text2image(ctx: discord.Interaction, style: StyleTransformer="base", refiner: ModelTransformer="", steps: int=25):
     await ctx.response.send_modal(Prompt(ctx, style, refiner, steps))
+
+@Lib.app.loop(minutes=1)
+async def update():
+    await update_progress()
 
 if __name__=="__main__":
     pass
