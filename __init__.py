@@ -5,8 +5,6 @@ from typing import List
 from PIL import Image
 import io
 import base64
-import asyncio
-from time import sleep
 
 Lib = lib.App()
 
@@ -16,6 +14,7 @@ url = "http://127.0.0.1:7860"
 
 prompt = "?"
 last_progress = 0
+job_count = 0
 ctx: discord.Message = None
 
 payload_json = {
@@ -222,12 +221,15 @@ async def gen_image(p_prompt, n_prompt="", style="base", refiner="", steps=25):
         image.save(Lib.save.get_full_path(save_path[1],save_path[0]))
 
 async def update_progress(): #ctx: discord.Interaction, prompt
-    async def update_img(ctx):
+    async def download_img():
         img_data = r.get("current_image")
         if img_data:
             image = Image.open(io.BytesIO(base64.b64decode(img_data)))
             image = image.resize((1024, 1024))
             image.save(Lib.save.get_full_path(save_path[1],save_path[0]))
+
+    async def update_img(ctx):
+        if Lib.save.existe(save_path[1],save_path[0]):
             if isinstance(ctx, discord.Message):
                 await ctx.edit(content=f"Generating... {int(progress*100)}%\n**{prompt}**", attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
             elif isinstance(ctx, discord.Interaction):
@@ -238,25 +240,34 @@ async def update_progress(): #ctx: discord.Interaction, prompt
             elif isinstance(ctx, discord.Interaction):
                 await ctx.edit_original_response(content=f"Generating... {int(progress*100)}%\n**{prompt}**")
 
-    global last_progress, ctx
+    global last_progress, ctx, job_count
     if ctx:
         response = requests.get(url = "http://127.0.0.1:7860/sdapi/v1/progress")
         r = response.json()
         progress = r.get("progress")
-        
-        if progress > last_progress and progress > 0:
-            last_progress = progress
-            await update_img(ctx)
-        elif progress < last_progress:
+        state = r.get("state")
+        job_no = state.get("job_no")
+        if job_no == job_count:
+            if progress > last_progress:
+                last_progress = progress
+                await download_img()
+                await update_img(ctx)
+        elif job_no > job_count:
             await update_img(ctx)
             if isinstance(ctx, discord.Message):
                 await ctx.edit(content=f"Generating... finished\n**{prompt}**")
             elif isinstance(ctx, discord.Interaction):
                 await ctx.edit_original_response(content=f"Generating... finished\n**{prompt}**")
-            ctx = await Lib.client.get_user(608779421683417144).send(f"Generating... 0%\n**{prompt}**")
-            progress = 0
+            if job_count < state.get("job_count"):
+                ctx = await Lib.client.get_user(608779421683417144).send(f"Generating... 0%\n**{prompt}**")
+                last_progress = 0
+            job_count+=1
     else:
-        ctx = await Lib.client.get_user(608779421683417144).send(f"Generating... 0%\n**{prompt}**")
+        response = requests.get(url = "http://127.0.0.1:7860/sdapi/v1/progress")
+        r = response.json()
+        job = r.get("job")
+        if job != "":
+            ctx = await Lib.client.get_user(608779421683417144).send(f"Generating... 0%\n**{prompt}**")
     
 
 @Lib.event.event()
@@ -270,7 +281,7 @@ async def on_ready():
 async def text2image(ctx: discord.Interaction, style: StyleTransformer="base", refiner: ModelTransformer="", steps: int=25):
     await ctx.response.send_modal(Prompt(ctx, style, refiner, steps))
 
-@Lib.app.loop(minutes=1)
+@Lib.app.loop(seconds=30)
 async def update():
     await update_progress()
 
