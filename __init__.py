@@ -5,6 +5,7 @@ from typing import List
 from PIL import Image
 import io
 import base64
+import threading
 
 Lib = lib.App()
 
@@ -15,7 +16,9 @@ url = "http://127.0.0.1:7860"
 prompt = "?"
 last_progress = 0
 job_count = 0
-ctx: discord.Message = None
+ctx = None
+
+stack = []
 
 payload_json = {
     "alwayson_scripts" : {
@@ -192,19 +195,27 @@ class Prompt(discord.ui.Modal):
         global ctx
         ctx = interaction
         await interaction.response.send_message(f'Generating... 0%\n**{self.positive.value}**', ephemeral=True)
-        await gen_image(self.positive.value, self.negative.value, self.style, self.refiner, self.steps)
-
-        await interaction.edit_original_response(content=f'**{self.positive.value}**', attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
+        stack.append([self.positive.value, self.negative.value, self.style, self.refiner, self.steps, ctx])
+        #await gen_image(self.positive.value, self.negative.value, self.style, self.refiner, self.steps)
+        await lib.valide_intaraction(interaction)
+        #await interaction.edit_original_response(content=f'**{self.positive.value}**', attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
-        await interaction.response.send_message('Oops! Something went wrong.', ephemeral=True)
+        await interaction.response.send_message('Une erreur est survenu', ephemeral=True)
 
 def get_model_list():
     response = requests.get(url=f'{url}/sdapi/v1/sd-models')
     r = response.json()
     return r
 
-async def gen_image(p_prompt, n_prompt="", style="base", refiner="", steps=25):
+async def update_stak():
+    global ctx
+    if stack:
+        args = stack.pop(0)
+        ctx = args.pop()
+        threading.Thread(target=gen_image, args=args).start()
+
+def gen_image(p_prompt, n_prompt="", style="base", refiner="", steps=25):
     payload=payload_json
     payload["prompt"] = p_prompt
     payload["negative_prompt"] = n_prompt
@@ -212,9 +223,8 @@ async def gen_image(p_prompt, n_prompt="", style="base", refiner="", steps=25):
 
     payload["alwayson_scripts"]["Refiner"]["args"][1] = refiner
     payload["alwayson_scripts"]["Style Selector for SDXL 1.0"]["args"][4] = style
-
     response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=payload)
-    
+
     if response.status_code == 200:
         r = response.json()
         image = Image.open(io.BytesIO(base64.b64decode(r['images'][0])))
@@ -225,20 +235,20 @@ async def update_progress(): #ctx: discord.Interaction, prompt
         img_data = r.get("current_image")
         if img_data:
             image = Image.open(io.BytesIO(base64.b64decode(img_data)))
-            image = image.resize((1024, 1024))
+            #image = image.resize((1024, 1024))
             image.save(Lib.save.get_full_path(save_path[1],save_path[0]))
 
-    async def update_img(ctx):
+    async def update_img(ctx, job_no, job_count):
         if Lib.save.existe(save_path[1],save_path[0]):
             if isinstance(ctx, discord.Message):
-                await ctx.edit(content=f"Generating... {int(progress*100)}%\n**{prompt}**", attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
+                await ctx.edit(content=f"Generating... {int((progress-job_no*(1/job_count))/(100/job_count)*100*100)}%\n**{prompt}**", attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
             elif isinstance(ctx, discord.Interaction):
-                await ctx.edit_original_response(content=f"Generating... {int(progress*100)}%\n**{prompt}**", attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
+                await ctx.edit_original_response(content=f"Generating... {int((progress-job_no*(1/job_count))/(100/job_count)*100*100)}%\n**{prompt}**", attachments=[discord.File(Lib.save.get_full_path(save_path[1],save_path[0]))])
         else:
             if isinstance(ctx, discord.Message):
-                await ctx.edit(content=f"Generating... {int(progress*100)}%\n**{prompt}**")
+                await ctx.edit(content=f"Generating... {int((progress-job_no*(1/job_count))/(100/job_count)*100*100)}%\n**{prompt}**")
             elif isinstance(ctx, discord.Interaction):
-                await ctx.edit_original_response(content=f"Generating... {int(progress*100)}%\n**{prompt}**")
+                await ctx.edit_original_response(content=f"Generating... {int((progress-job_no*(1/job_count))/(100/job_count)*100*100)}%\n**{prompt}**")
 
     global last_progress, ctx, job_count
     if ctx:
@@ -251,9 +261,9 @@ async def update_progress(): #ctx: discord.Interaction, prompt
             if progress > last_progress:
                 last_progress = progress
                 await download_img()
-                await update_img(ctx)
+                await update_img(ctx, job_no, state.get("job_count"))
         elif job_no > job_count:
-            await update_img(ctx)
+            await update_img(ctx, 1, 1)
             if isinstance(ctx, discord.Message):
                 await ctx.edit(content=f"Generating... finished\n**{prompt}**")
             elif isinstance(ctx, discord.Interaction):
@@ -261,7 +271,7 @@ async def update_progress(): #ctx: discord.Interaction, prompt
             if job_count < state.get("job_count"):
                 ctx = await Lib.client.get_user(608779421683417144).send(f"Generating... 0%\n**{prompt}**")
                 last_progress = 0
-            job_count+=1
+            job_count=job_no
     else:
         response = requests.get(url = "http://127.0.0.1:7860/sdapi/v1/progress")
         r = response.json()
@@ -281,9 +291,14 @@ async def on_ready():
 async def text2image(ctx: discord.Interaction, style: StyleTransformer="base", refiner: ModelTransformer="", steps: int=25):
     await ctx.response.send_modal(Prompt(ctx, style, refiner, steps))
 
-@Lib.app.loop(seconds=30)
+@Lib.app.loop(seconds=15)
 async def update():
+    print(ctx)
     await update_progress()
+
+@Lib.app.loop(seconds=15)
+async def check_stak():
+    await update_stak()
 
 if __name__=="__main__":
     pass
