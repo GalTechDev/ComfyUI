@@ -1,2 +1,2 @@
-# automatic1111
- UsOS app for automatic1111
+# ComfyUI
+ UsOS app for ComfyUI
