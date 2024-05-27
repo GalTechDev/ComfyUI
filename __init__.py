@@ -498,25 +498,40 @@ workflow = {
 #############################################################
 
 class Task:
-    def __init__(self, ctx: discord.Interaction, uuid: str, positive: str, negative: str) -> None:
+    def __init__(self, ctx: discord.Interaction, uuid: str, positive: str, negative: str, model) -> None:
         self.ctx = ctx
         self.uuid = uuid
         self.positive = positive
         self.negative = negative
         self.thread = None
+        self.model = model
 
         send_prompt(self.uuid, self.positive, self.negative)
 
+    def get_embed(self, status="", file=None):
+        embed = discord.Embed(title=f"**{self.positive}**", description=f"Negative : **{self.negative}**" if self.negative else None)
+        embed.add_field(name="Model :", value=self.model.split(".")[0])
+
+        if file: 
+            embed.set_image(url="attachment://image.png")
+        else:
+            embed.set_author(name=status)
+
+        return embed
 
     async def wait4img(self):
         while True:
             response = requests.get(f"http://{domain}/view?filename={self.uuid}_00001_.png&type=output")
             if response.status_code == 200:
-                image = BytesIO(response.content)                
+                image = BytesIO(response.content)
+                print(image.getbuffer().nbytes)
+                if image.getbuffer().nbytes < 300000:
+                    continue            
                 break
             await asyncio.sleep(1)
+
         file=discord.File(fp=image, filename='image.png')
-        await self.ctx.edit_original_response(content=f"Positive : **{self.positive}**\nNegative : **{self.negative}**", attachments=[file])
+        await self.ctx.edit_original_response(embed=self.get_embed(file=file), attachments=[file])
         if tasks:
             tasks.pop(0)
         await update_task()
@@ -524,11 +539,11 @@ class Task:
     async def update_msg(self):
         if tasks[0] == self:
             if not self.thread:
-                await self.ctx.edit_original_response(content=f"Generating...\nPositive : **{self.positive}**\nNegative : **{self.negative}**")
+                await self.ctx.edit_original_response(embed=self.get_embed("Generating..."))
                 asyncio.create_task(self.wait4img())
 
         else:
-            await self.ctx.edit_original_response(content=f"Queue remaining : {queue_remaining}\nPositive : **{self.positive}**\nNegative : **{self.negative}**")
+            await self.ctx.edit_original_response(embed=self.get_embed(f"Queue remaining : {queue_remaining}"))
 
 #############################################################
 #                       Transformer                         #
@@ -544,7 +559,7 @@ class ModelTransformer(discord.app_commands.Transformer):
     async def autocomplete(self, interaction: discord.Interaction, value: str) -> List[discord.app_commands.Choice[str]]:
         choices: List[discord.app_commands.Choice] = []
         for m in models:
-            choices.append(discord.app_commands.Choice(name=m, value=m))
+            choices.append(discord.app_commands.Choice(name=m.split(".")[0], value=m))
         return choices[:25]
 
 #############################################################
@@ -570,14 +585,15 @@ class Prompt(discord.ui.Modal):
         self.steps = steps
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f'Queue remaining : {queue_remaining}\nPositive : **{self.positive.value}**\nNegative : **{self.negative.value}**', ephemeral=False)
-        tasks.append(Task(interaction, str(uuid4()), self.positive.value, self.negative.value))
+        task = Task(interaction, str(uuid4()), self.positive.value, self.negative.value, self.model)
+        await interaction.response.send_message(embed=task.get_embed(f"Queue remaining : {queue_remaining}"), ephemeral=False)
+        tasks.append(task)
         await update_task()
         
         
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
-        await interaction.response.send_message('Une erreur est survenu', ephemeral=True)
+        await interaction.response.send_message("Une erreur est survenu", ephemeral=True)
 
 #############################################################
 #                           ComfyUI                         #
