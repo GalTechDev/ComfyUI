@@ -24,11 +24,11 @@ models = []
 #############################################################
 
 workflow = {
-    "client_id": "23d654ab337f48d9bbad8559f3ed7407",
+    "client_id": "",
     "prompt": {
         "42": {
             "inputs": {
-                "ckpt_name": "dreamshaperXL_v21TurboDPMSDE.safetensors"
+                "ckpt_name": ""
             },
             "class_type": "CheckpointLoaderSimple"
         },
@@ -165,7 +165,7 @@ workflow = {
                             "Node name for S&R": "CheckpointLoaderSimple"
                         },
                         "widgets_values": [
-                            "dreamshaperXL_v21TurboDPMSDE.safetensors"
+                            ""
                         ]
                     },
                     {
@@ -498,15 +498,19 @@ workflow = {
 #############################################################
 
 class Task:
-    def __init__(self, ctx: discord.Interaction, uuid: str, positive: str, negative: str, model) -> None:
+    def __init__(self, ctx: discord.Interaction, positive: str, negative: str, model: str) -> None:
         self.ctx = ctx
-        self.uuid = uuid
+        self.uuid = None
         self.positive = positive
         self.negative = negative
-        self.thread = None
         self.model = model
+        self.thread = None
 
-        send_prompt(self.uuid, self.positive, self.negative)
+        self.send_prompt()
+
+    def send_prompt(self):
+        self.uuid = str(uuid4())
+        send_prompt(self.uuid, self.model, self.positive, self.negative)
 
     def get_embed(self, status="", file=None):
         embed = discord.Embed(title=f"**{self.positive}**", description=f"Negative : **{self.negative}**" if self.negative else None)
@@ -523,24 +527,29 @@ class Task:
         while True:
             response = requests.get(f"http://{domain}/view?filename={self.uuid}_00001_.png&type=output")
             if response.status_code == 200:
-                image = BytesIO(response.content)
-                print(image.getbuffer().nbytes)
-                if image.getbuffer().nbytes < 300000:
-                    continue            
+                response = requests.get(f"http://{domain}/view?filename={self.uuid}_00001_.png&type=output")
+                image = BytesIO(response.content)          
                 break
             await asyncio.sleep(1)
 
+        try:
+            task = tasks.pop(0)
+        except Exception:
+            pass
+
+        view = Text2Image_View(ctx=self.ctx, task=task)
+
         file=discord.File(fp=image, filename='image.png')
-        await self.ctx.edit_original_response(embed=self.get_embed(file=file), attachments=[file])
-        if tasks:
-            tasks.pop(0)
+        await self.ctx.edit_original_response(embed=self.get_embed(file=file), attachments=[file], view=view)
+        
         await update_task()
 
     async def update_msg(self):
-        if tasks[0] == self:
+        if tasks[0] is self:
             if not self.thread:
+                self.thread = True
                 await self.ctx.edit_original_response(embed=self.get_embed("Generating..."))
-                asyncio.create_task(self.wait4img())
+                await self.wait4img()
 
         else:
             await self.ctx.edit_original_response(embed=self.get_embed(f"Queue remaining : {queue_remaining}"))
@@ -562,6 +571,34 @@ class ModelTransformer(discord.app_commands.Transformer):
             choices.append(discord.app_commands.Choice(name=m.split(".")[0], value=m))
         return choices[:25]
 
+#############################################################
+#                           View                            #
+#############################################################  
+
+class Text2Image_View(discord.ui.View):
+    def __init__(self, ctx: discord.Interaction, task: Task, timeout: float | None = 180):
+        super().__init__(timeout=timeout)
+        self.ctx = ctx
+        self.task = task
+
+        self.regenerate_btn = self.ReGenerate(self.task, emoji="🔄")
+        self.add_item(self.regenerate_btn)
+
+    async def on_timeout(self):
+        await self.ctx.edit_original_response(view=None)
+
+    class ReGenerate(discord.ui.Button):
+        def __init__(self, task: Task, style: discord.ButtonStyle = discord.ButtonStyle.secondary, label: str | None = None, disabled: bool = False, custom_id: str | None = None, url: str | None = None, emoji: str | discord.Emoji | discord.PartialEmoji | None = None, row: int | None = None):
+            super().__init__(style=style, label=label, disabled=disabled, custom_id=custom_id, url=url, emoji=emoji, row=row)
+            self.task = task
+
+        async def callback(self, interaction: discord.Interaction) -> lib.Any:
+            task = Task(interaction, positive=self.task.positive, negative=self.task.negative, model=self.task.model)
+            tasks.append(task)
+
+            await interaction.response.send_message(embed=task.get_embed(f"Queue remaining : {queue_remaining}"), ephemeral=False)
+            await update_task()
+        
 #############################################################
 #                           Modal                           #
 #############################################################  
@@ -585,7 +622,7 @@ class Prompt(discord.ui.Modal):
         self.steps = steps
 
     async def on_submit(self, interaction: discord.Interaction):
-        task = Task(interaction, str(uuid4()), self.positive.value, self.negative.value, self.model)
+        task = Task(interaction, self.positive.value, self.negative.value, self.model)
         await interaction.response.send_message(embed=task.get_embed(f"Queue remaining : {queue_remaining}"), ephemeral=False)
         tasks.append(task)
         await update_task()
@@ -593,7 +630,7 @@ class Prompt(discord.ui.Modal):
         
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
-        await interaction.response.send_message("Une erreur est survenu", ephemeral=True)
+        await interaction.response.send_message(f"Une erreur est survenu : {error}", ephemeral=True)
 
 #############################################################
 #                           ComfyUI                         #
@@ -625,10 +662,11 @@ def on_error(idk, e):
 def on_close(idk):
     print("ComfyUI Disconnected")
 
-def send_prompt(uuid: str, positive_prompt: str = "", negative_prompt: str = ""):
+def send_prompt(uuid: str, model, positive_prompt: str = "", negative_prompt: str = ""):
     prompt_url = f"http://{domain}/prompt"
 
     wrk = workflow.copy()
+    wrk["prompt"]["42"]["inputs"]["ckpt_name"] = model
     wrk["prompt"]["44"]["inputs"]["seed"] = randint(100000000000000,999999999999999)
     wrk["prompt"]["48"]["inputs"]["text"] = positive_prompt
     wrk["prompt"]["51"]["inputs"]["text"] = negative_prompt
