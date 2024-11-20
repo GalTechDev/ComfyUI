@@ -498,9 +498,10 @@ workflow = {
 #############################################################
 
 class Task:
-    def __init__(self, ctx: discord.Interaction, positive: str, negative: str, model: str) -> None:
+    def __init__(self, ctx: discord.Interaction, positive: str, negative: str, model: str, seed: int) -> None:
         self.ctx = ctx
         self.uuid = None
+        self.seed = seed
         self.positive = positive
         self.negative = negative
         self.model = model
@@ -510,7 +511,7 @@ class Task:
 
     def send_prompt(self):
         self.uuid = str(uuid4())
-        send_prompt(self.uuid, self.model, self.positive, self.negative)
+        send_prompt(self.uuid, self.seed, self.model, self.positive, self.negative)
 
     def get_embed(self, status="", file=None):
         embed = discord.Embed(title=f"**{self.positive}**", description=f"Negative : **{self.negative}**" if self.negative else None)
@@ -622,7 +623,7 @@ class Prompt(discord.ui.Modal):
         self.steps = steps
 
     async def on_submit(self, interaction: discord.Interaction):
-        task = Task(interaction, self.positive.value, self.negative.value, self.model)
+        task = Task(interaction, self.positive.value, self.negative.value, self.model, randint(100000000000000,999999999999999))
         await interaction.response.send_message(embed=task.get_embed(f"Queue remaining : {queue_remaining}"), ephemeral=False)
         tasks.append(task)
         await update_task()
@@ -662,12 +663,12 @@ def on_error(idk, e):
 def on_close(idk):
     print("ComfyUI Disconnected")
 
-def send_prompt(uuid: str, model, positive_prompt: str = "", negative_prompt: str = ""):
+def send_prompt(uuid: str, seed: int, model: str, positive_prompt: str = "", negative_prompt: str = ""):
     prompt_url = f"http://{domain}/prompt"
 
     wrk = workflow.copy()
     wrk["prompt"]["42"]["inputs"]["ckpt_name"] = model
-    wrk["prompt"]["44"]["inputs"]["seed"] = randint(100000000000000,999999999999999)
+    wrk["prompt"]["44"]["inputs"]["seed"] = seed
     wrk["prompt"]["48"]["inputs"]["text"] = positive_prompt
     wrk["prompt"]["51"]["inputs"]["text"] = negative_prompt
     wrk["prompt"]["54"]["inputs"]["filename_prefix"] = uuid
