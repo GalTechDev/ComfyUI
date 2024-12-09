@@ -23,7 +23,7 @@ models = []
 #                       Workflow                            #
 #############################################################
 
-workflow = {
+txt2img_workflow = {
     "client_id": "",
     "prompt": {
         "42": {
@@ -666,7 +666,7 @@ def on_close(idk):
 def send_prompt(uuid: str, seed: int, model: str, positive_prompt: str = "", negative_prompt: str = ""):
     prompt_url = f"http://{domain}/prompt"
 
-    wrk = workflow.copy()
+    wrk = txt2img_workflow.copy()
     wrk["prompt"]["42"]["inputs"]["ckpt_name"] = model
     wrk["prompt"]["44"]["inputs"]["seed"] = seed
     wrk["prompt"]["48"]["inputs"]["text"] = positive_prompt
