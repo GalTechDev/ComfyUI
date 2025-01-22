@@ -3,7 +3,6 @@ import requests
 from understar.system import lib
 from typing import List
 import websocket
-import requests
 import json
 from threading import Thread
 from uuid import uuid4
@@ -11,9 +10,21 @@ from random import randint
 import asyncio
 from io import BytesIO
 
-Lib = lib.App()
 
-domain = '127.0.0.1:8188'
+Lib = lib.App()
+if not Lib.save.existe("config.json"):
+    Lib.save.add_file("config.json")
+    Lib.save.write("config.json", data="{}")
+
+config = Lib.save.json_read("config.json")
+protocol = config.get("protocol", "http")
+config["protocol"] = protocol
+
+domain = config.get("domain", "localhost:8188")
+config["domain"] = domain
+
+Lib.save.write("config.json", data=json.dumps(config))
+
 save_path = ("sd_output", "output.png")
 tasks = []
 queue_remaining = 0
@@ -74,8 +85,8 @@ txt2img_workflow = {
         },
         "47": {
             "inputs": {
-                "width": 512,
-                "height": 512,
+                "width": 1024,
+                "height": 1024,
                 "batch_size": 1
             },
             "class_type": "EmptyLatentImage"
@@ -493,6 +504,8 @@ txt2img_workflow = {
     }
 }
 
+img2img_workflow = {}
+
 #############################################################
 #                     Other Class                           #
 #############################################################
@@ -526,9 +539,9 @@ class Task:
 
     async def wait4img(self):
         while True:
-            response = requests.get(f"http://{domain}/view?filename={self.uuid}_00001_.png&type=output")
+            response = requests.get(f"{protocol}://{domain}/view?filename={self.uuid}_00001_.png&type=output")
             if response.status_code == 200:
-                response = requests.get(f"http://{domain}/view?filename={self.uuid}_00001_.png&type=output")
+                response = requests.get(f"{protocol}://{domain}/view?filename={self.uuid}_00001_.png&type=output")
                 image = BytesIO(response.content)          
                 break
             await asyncio.sleep(1)
@@ -603,6 +616,7 @@ class Text2Image_View(discord.ui.View):
 #############################################################
 #                           Modal                           #
 #############################################################  
+
 
 class Prompt(discord.ui.Modal):
     positive = discord.ui.TextInput(
@@ -681,6 +695,12 @@ async def update_task():
     for task in tasks:
         await task.update_msg()
 
+async def updurl(ctx: discord.Interaction, new_domain, new_protocol):
+    global domain, protocol
+    domain = new_domain
+    protocol = new_protocol
+
+
 #############################################################
 #                           Event                           #
 #############################################################
@@ -705,3 +725,97 @@ async def on_ready():
 @Lib.app.slash(name="text2image", description="Génère une image par IA")
 async def text2image(ctx: discord.Interaction, model: ModelTransformer, steps: int=25):
     await ctx.response.send_modal(Prompt(ctx, model, steps))
+
+
+#############################################################
+#                           View                            #
+#############################################################
+
+class Updurl_view(discord.ui.View):
+    def __init__(self, *, ctx: discord.Interaction, url="", _protocol="", timeout: lib.Optional[float] = 180):
+        super().__init__(timeout=timeout)
+        self.ctx = ctx
+        self.url = domain
+        self._protocol = _protocol
+
+        self.add_item(self.Url_button(view=self, label="Edit domaine" if self.url else "Set domaine", style=discord.ButtonStyle.green if self.url else discord.ButtonStyle.gray))
+        self.add_item(self.Protocol_select(view=self, protocol=self._protocol, placeholder="Set protocol"))
+        self.add_item(self.Valide_button(view=self, label="Validate", style=discord.ButtonStyle.blurple, disabled=(self.url=="" or self._protocol=="")))
+
+    class Url_button(discord.ui.Button):
+        def __init__(self, *, view, style: discord.ButtonStyle = discord.ButtonStyle.secondary, label: lib.Optional[str] = None, disabled: bool = False, custom_id: lib.Optional[str] = None, url: lib.Optional[str] = None, emoji: lib.Optional[lib.Union[str, discord.Emoji, discord.PartialEmoji]] = None, row: lib.Optional[int] = None):
+            super().__init__(style=style, label=label, disabled=disabled, custom_id=custom_id, url=url, emoji=emoji, row=row)
+            self.per_view = view
+
+        async def callback(self, interaction: discord.Interaction) -> lib.Any:
+            await interaction.response.send_modal(Updurl_modal(view=self.per_view, title="URL"))
+
+    class Protocol_select(discord.ui.Select):
+        def __init__(self, *, view, protocol, custom_id: str = lib.MISSING, placeholder: lib.Optional[str] = None, min_values: int = 1, max_values: int = 1, options: lib.List[discord.SelectOption] = lib.MISSING, disabled: bool = False, row: lib.Optional[int] = None) -> None:
+            self.per_view = view
+            self.keys = ["http", "https"]
+            self.protocol = protocol
+            options = [discord.SelectOption(label=key, default=True if self.protocol == key else False) for key in self.keys]
+            super().__init__(custom_id=custom_id, placeholder=placeholder, min_values=min_values, max_values=max_values, options=options, disabled=disabled, row=row)
+
+        async def callback(self, interaction: discord.Interaction) -> lib.Any:
+            if self.values[0] in list(self.keys):
+                await updurl_menu(self.per_view.ctx, self.per_view.url, self.values[0])
+                await lib.valide_intaraction(interaction)
+
+    class Valide_button(discord.ui.Button):
+        def __init__(self, *, view, style: discord.ButtonStyle = discord.ButtonStyle.secondary, label: lib.Optional[str] = None, disabled: bool = False, custom_id: lib.Optional[str] = None, url: lib.Optional[str] = None, emoji: lib.Optional[lib.Union[str, discord.Emoji, discord.PartialEmoji]] = None, row: lib.Optional[int] = None):
+            super().__init__(style=style, label=label, disabled=disabled, custom_id=custom_id, url=url, emoji=emoji, row=row)
+            self.comfyui_domain = view.url
+            self._protocol = view._protocol
+
+        async def callback(self, interaction: discord.Interaction) -> lib.Any:
+            await updurl(interaction, self.comfyui_domain, self._protocol)
+
+class Config_view(discord.ui.View):
+    def __init__(self, *, ctx: discord.Interaction, timeout: lib.Optional[float] = 180):
+        super().__init__(timeout=timeout)
+        self.ctx=ctx
+
+    @discord.ui.button(label="Edit URL",style=discord.ButtonStyle.gray)
+    async def updurl_button(self, interaction:discord.Interaction, button:discord.ui.Button):
+        await updurl_menu(self.ctx)
+        await lib.valide_intaraction(interaction)
+
+#############################################################
+#                          Modal                           #
+#############################################################
+
+class Updurl_modal(discord.ui.Modal):
+    def __init__(self, *, view: Updurl_view, title: str = lib.MISSING, timeout: lib.Optional[float] = None, custom_id: str = lib.MISSING) -> None:
+        super().__init__(title=title, timeout=timeout, custom_id=custom_id)
+        self.url = discord.ui.TextInput(label="url", placeholder="localhost:8188")
+        self.add_item(self.url)
+        self.per_view = view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        val = self.url.__str__()
+        if not val:
+            raise Exception()
+        else:
+            await updurl_menu(self.per_view.ctx, self.url.__str__(), self.per_view._class)
+            await lib.valide_intaraction(interaction)
+
+
+#############################################################
+#                          Config                           #
+#############################################################
+async def updurl_menu(ctx: discord.Interaction, url=""):
+    embed=discord.Embed(title=":gear:  ComfyUI Config")
+    embed.description = "Update ComfyUI url"
+    await ctx.edit_original_response(embed=embed, view=Updurl_view(ctx=ctx, url=url))
+
+@Lib.app.config()
+async def config(ctx: discord.Interaction):
+    if not ctx.response.is_done():
+        await ctx.response.send_message(embed=discord.Embed(title="Chargement..."), ephemeral=True)
+    embed=discord.Embed(title=":gear:  ComfyUI Config")
+    embed.add_field(name="Info :", value=f"ComfyUI URL : {protocol}://{domain}")
+    embed.add_field(name="Info :", value=f"Workflow loaded : {1}")
+    embed.add_field(name="Info :", value=f"Model loaded : {len(models)}")
+    await ctx.edit_original_response(embed=embed, view=Config_view(ctx=ctx))
