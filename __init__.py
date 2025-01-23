@@ -755,7 +755,7 @@ class Updurl_view(discord.ui.View):
     def __init__(self, *, ctx: discord.Interaction, url="", _protocol="", timeout: lib.Optional[float] = 180):
         super().__init__(timeout=timeout)
         self.ctx = ctx
-        self.url = domain
+        self.url = url
         self._protocol = _protocol
 
         self.add_item(self.Url_button(view=self, label="Edit domaine" if self.url else "Set domaine", style=discord.ButtonStyle.green if self.url else discord.ButtonStyle.gray))
@@ -829,7 +829,7 @@ async def updurl_menu(ctx: discord.Interaction, url="", _class=""):
     embed=discord.Embed(title=":gear:  ComfyUI Config")
     embed.description = "Update ComfyUI url"
     prot = _class
-    print(prot)
+    
     await ctx.edit_original_response(embed=embed, view=Updurl_view(ctx=ctx, url=url, _protocol=prot))
 
 @Lib.app.config()
