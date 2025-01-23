@@ -710,6 +710,13 @@ async def updurl(ctx: discord.Interaction, new_domain, new_protocol):
     domain = new_domain
     protocol = new_protocol
 
+    config["domain"] = domain
+    config["protocol"] = protocol
+
+    Lib.save.write("config.json", data=json.dumps(config))
+
+    await lib.valide_intaraction(ctx)
+
 
 #############################################################
 #                           Event                           #
@@ -826,7 +833,7 @@ async def updurl_menu(ctx: discord.Interaction, url="", _class=""):
     await ctx.edit_original_response(embed=embed, view=Updurl_view(ctx=ctx, url=url, _protocol=prot))
 
 @Lib.app.config()
-async def config(ctx: discord.Interaction):
+async def config_menu(ctx: discord.Interaction):
     if not ctx.response.is_done():
         await ctx.response.send_message(embed=discord.Embed(title="Chargement..."), ephemeral=True)
     embed=discord.Embed(title=":gear:  ComfyUI Config")
