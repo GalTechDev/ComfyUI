@@ -45,7 +45,7 @@ txt2img_workflow = {
         },
         "44": {
             "inputs": {
-                "seed": 879523854994921,
+                "seed": 0,
                 "steps": 8,
                 "cfg": 2,
                 "sampler_name": "dpmpp_sde",
@@ -268,8 +268,8 @@ txt2img_workflow = {
                             "Node name for S&R": "EmptyLatentImage"
                         },
                         "widgets_values": [
-                            512,
-                            512,
+                            1024,
+                            1024,
                             1
                         ]
                     },
@@ -607,7 +607,7 @@ class Text2Image_View(discord.ui.View):
             self.task = task
 
         async def callback(self, interaction: discord.Interaction) -> lib.Any:
-            task = Task(interaction, positive=self.task.positive, negative=self.task.negative, model=self.task.model)
+            task = Task(interaction, positive=self.task.positive, negative=self.task.negative, model=self.task.model, seed=gen_seed())
             tasks.append(task)
 
             await interaction.response.send_message(embed=task.get_embed(f"Queue remaining : {queue_remaining}"), ephemeral=False)
@@ -637,7 +637,7 @@ class Prompt(discord.ui.Modal):
         self.steps = steps
 
     async def on_submit(self, interaction: discord.Interaction):
-        task = Task(interaction, self.positive.value, self.negative.value, self.model, randint(100000000000000,999999999999999))
+        task = Task(interaction, self.positive.value, self.negative.value, self.model, gen_seed())
         await interaction.response.send_message(embed=task.get_embed(f"Queue remaining : {queue_remaining}"), ephemeral=False)
         tasks.append(task)
         await update_task()
@@ -650,6 +650,9 @@ class Prompt(discord.ui.Modal):
 #############################################################
 #                           ComfyUI                         #
 #############################################################
+
+def gen_seed():
+    return randint(100000000000000,999999999999999)
 
 def get_model_list():
     info_url = f"http://{domain}/object_info"
@@ -798,17 +801,19 @@ class Updurl_modal(discord.ui.Modal):
         if not val:
             raise Exception()
         else:
-            await updurl_menu(self.per_view.ctx, self.url.__str__(), self.per_view._class)
+            await updurl_menu(self.per_view.ctx, self.url.__str__(), self.per_view._protocol)
             await lib.valide_intaraction(interaction)
 
 
 #############################################################
 #                          Config                           #
 #############################################################
-async def updurl_menu(ctx: discord.Interaction, url=""):
+async def updurl_menu(ctx: discord.Interaction, url="", _class=""):
     embed=discord.Embed(title=":gear:  ComfyUI Config")
     embed.description = "Update ComfyUI url"
-    await ctx.edit_original_response(embed=embed, view=Updurl_view(ctx=ctx, url=url))
+    prot = _class
+    print(prot)
+    await ctx.edit_original_response(embed=embed, view=Updurl_view(ctx=ctx, url=url, _protocol=prot))
 
 @Lib.app.config()
 async def config(ctx: discord.Interaction):
