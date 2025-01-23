@@ -9,6 +9,7 @@ from uuid import uuid4
 from random import randint
 import asyncio
 from io import BytesIO
+from logging import info
 
 
 Lib = lib.App()
@@ -672,20 +673,20 @@ def get_model_list():
          return []
     
 def on_open(idk):
-    print("ComfyUI Connected")
+    info("ComfyUI Connected")
 
 def on_message(idk, msg):
     global queue_remaining
     msg = json.loads(msg)
     if msg.get("type") == "status":
-        print(f"ComfyUI Message : {msg}")
+        info(f"ComfyUI Message : {msg}")
         queue_remaining = msg["data"]["status"]["exec_info"]["queue_remaining"]
 
 def on_error(idk, e):
-    print(f"ComfyUI Error : {e}")
+    info(f"ComfyUI Error : {e}")
 
 def on_close(idk):
-    print("ComfyUI Disconnected")
+    info("ComfyUI Disconnected")
 
 def send_prompt(uuid: str, seed: int, model: str, positive_prompt: str = "", negative_prompt: str = ""):
     prompt_url = f"http://{domain}/prompt"
@@ -735,8 +736,8 @@ async def on_ready():
     thread = Thread(target=sws.run_forever)
     thread.start()
 
-    print("ComfyUI ready !")
-    print(models)
+    info("ComfyUI ready !")
+    info(models)
 
 #############################################################
 #                           Slash                           #
