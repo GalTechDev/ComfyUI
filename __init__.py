@@ -12,23 +12,30 @@ from io import BytesIO
 
 
 Lib = lib.App()
-if not Lib.save.existe("config.json"):
-    Lib.save.add_file("config.json")
-    Lib.save.write("config.json", data="{}")
 
-config = Lib.save.json_read("config.json")
-protocol = config.get("protocol", "http")
-config["protocol"] = protocol
-
-domain = config.get("domain", "localhost:8188")
-config["domain"] = domain
-
-Lib.save.write("config.json", data=json.dumps(config))
+config = {}
+protocol = "http"
+domain = "localhost:8188"
 
 save_path = ("sd_output", "output.png")
 tasks = []
 queue_remaining = 0
 models = []
+
+def data_load():
+    global config, protocol, domain
+    if not Lib.save.existe("config.json"):
+        Lib.save.add_file("config.json")
+        Lib.save.write("config.json", data="{}")
+
+    config = Lib.save.json_read("config.json")
+    protocol = config.get("protocol", protocol)
+    config["protocol"] = protocol
+
+    domain = config.get("domain", domain)
+    config["domain"] = domain
+
+    Lib.save.write("config.json", data=json.dumps(config))
 
 #############################################################
 #                       Workflow                            #
@@ -711,6 +718,9 @@ async def updurl(ctx: discord.Interaction, new_domain, new_protocol):
 @Lib.event.event()
 async def on_ready():
     global models
+
+    data_load()
+
     models = get_model_list()
 
     ws_url = f"ws://{domain}/ws"
