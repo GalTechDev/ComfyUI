@@ -604,7 +604,10 @@ class Text2Image_View(discord.ui.View):
         self.task = task
 
         self.regenerate_btn = self.ReGenerate(self.task, emoji="🔄")
+        self.edit_btn = self.Edit(self.task, emoji="✏️")
+
         self.add_item(self.regenerate_btn)
+        self.add_item(self.edit_btn)
 
     async def on_timeout(self):
         await self.ctx.edit_original_response(view=None)
@@ -620,6 +623,14 @@ class Text2Image_View(discord.ui.View):
 
             await interaction.response.send_message(embed=task.get_embed(f"Queue remaining : {queue_remaining}"), ephemeral=False)
             await update_task()
+
+    class Edit(discord.ui.Button):
+        def __init__(self, task: Task, style: discord.ButtonStyle = discord.ButtonStyle.secondary, label: str | None = None, disabled: bool = False, custom_id: str | None = None, url: str | None = None, emoji: str | discord.Emoji | discord.PartialEmoji | None = None, row: int | None = None):
+            super().__init__(style=style, label=label, disabled=disabled, custom_id=custom_id, url=url, emoji=emoji, row=row)
+            self.task = task
+
+        async def callback(self, interaction: discord.Interaction) -> lib.Any:
+            await interaction.response.send_modal(Prompt(self.task.model, 25, self.task.positive, self.task.negative))
         
 #############################################################
 #                           Modal                           #
@@ -639,10 +650,12 @@ class Prompt(discord.ui.Modal):
         style=discord.TextStyle.long,
     )
 
-    def __init__(self, ctx: discord.Interaction, model: str, steps: int) -> None:
+    def __init__(self, model: str, steps: int, positive: str="", negative: str="") -> None:
         super().__init__(title='Prompt')
         self.model = model
         self.steps = steps
+        self.positive.default = positive
+        self.negative.default = negative
 
     async def on_submit(self, interaction: discord.Interaction):
         task = Task(interaction, self.positive.value, self.negative.value, self.model, gen_seed())
@@ -745,7 +758,7 @@ async def on_ready():
 
 @Lib.app.slash(name="text2image", description="Génère une image par IA")
 async def text2image(ctx: discord.Interaction, model: ModelTransformer, steps: int=25):
-    await ctx.response.send_modal(Prompt(ctx, model, steps))
+    await ctx.response.send_modal(Prompt(model, steps))
 
 
 #############################################################
@@ -788,10 +801,11 @@ class Updurl_view(discord.ui.View):
         def __init__(self, *, view, style: discord.ButtonStyle = discord.ButtonStyle.secondary, label: lib.Optional[str] = None, disabled: bool = False, custom_id: lib.Optional[str] = None, url: lib.Optional[str] = None, emoji: lib.Optional[lib.Union[str, discord.Emoji, discord.PartialEmoji]] = None, row: lib.Optional[int] = None):
             super().__init__(style=style, label=label, disabled=disabled, custom_id=custom_id, url=url, emoji=emoji, row=row)
             self.comfyui_domain = view.url
-            self._protocol = view._protocol
+            self.per_view = view
 
         async def callback(self, interaction: discord.Interaction) -> lib.Any:
-            await updurl(interaction, self.comfyui_domain, self._protocol)
+            await updurl(interaction, self.comfyui_domain, self.per_view._protocol)
+            await config_menu(self.per_view.ctx)
 
 class Config_view(discord.ui.View):
     def __init__(self, *, ctx: discord.Interaction, timeout: lib.Optional[float] = 180):
